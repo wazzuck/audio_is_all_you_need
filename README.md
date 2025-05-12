@@ -77,23 +77,32 @@ This project implements a CNN-based model, inspired by common audio classificati
 5.  **Run the environment setup script (`01_setup.sh`):**
     In the **new** terminal window (if applicable), navigate back to the project directory and run the second script. This script will:
     *   Create a Conda environment named `tf_env` with Python 3.11 (if it doesn't already exist).
-    *   Activate the `tf_env` environment.
+    *   Activate the `tf_env` environment *within the script* to ensure correct package installation.
     *   Install the required Python dependencies from `requirements.txt` into `tf_env`.
     ```bash
     cd <repository-directory> # If needed
     bash 01_setup.sh
     ```
+    *Note: The script activates `tf_env` only for its own duration. Your terminal will likely return to the `base` environment after the script finishes.* 
 
-6.  **Activate the Conda Environment (for future sessions):**
-    The `01_setup.sh` script activates the `tf_env` environment. For any future sessions, you will need to manually activate it before running project scripts:
+6.  **Activate the Conda Environment (Manually Required for Each Session):**
+    Before running any project scripts (`download_data.py`, `preprocess_data.py`, `train.py`, `predict.py`), you **must** manually activate the `tf_env` environment in your terminal session:
     ```bash
     conda activate tf_env
     ```
-    To deactivate the environment, you can use `conda deactivate`.
+    Your terminal prompt should change to indicate `(tf_env)` is active.
+    To deactivate the environment when you are finished, you can use `conda deactivate`.
+
+7.  **(Optional) Automatic Environment Activation:**
+    For convenience, you might want the `tf_env` environment to activate automatically whenever you navigate to this project directory in your terminal. This is **not** handled by the project setup scripts, as automatically modifying user shell configurations can be risky.
+    If you desire this, you can explore tools like:
+    *   [direnv](https://direnv.net/): A popular tool that loads/unloads environment variables (and can activate conda environments) based on the current directory.
+    *   Manual shell configuration: You could add custom logic to your shell's startup file (e.g., `~/.bashrc`, `~/.zshrc`) to detect the project directory and activate the environment. 
+    *Setting these up is a user-managed task and specific to your system and preferences.*
 
 ## Usage
 
-**Ensure the `tf_env` Conda environment is activated (`conda activate tf_env`) before running any Python scripts.**
+**IMPORTANT: Ensure the `tf_env` Conda environment is activated (`conda activate tf_env`) before running any Python scripts.**
 
 Follow these steps in order:
 
