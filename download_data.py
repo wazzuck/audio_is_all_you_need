@@ -37,6 +37,21 @@ def download_urbansound8k(data_home=DATA_DIR): # Use DATA_DIR as default data_ho
                  print("Download successful.")
                  dataset.validate() # Validate after download
                  print("Dataset validated after download.")
+                 # --- Add this to check actual file paths ---
+                 try:
+                     clip_ids = dataset.get_track_ids() # Or get_clip_ids() depending on soundata version
+                     if clip_ids:
+                         first_clip_id = clip_ids[0]
+                         clip_data = dataset.track(first_clip_id) # Or clip()
+                         if clip_data and clip_data.audio_path:
+                             print(f"DEBUG: Path of first audio file according to soundata: {clip_data.audio_path}")
+                         else:
+                             print("DEBUG: Could not retrieve audio path for the first clip.")
+                     else:
+                         print("DEBUG: No clip IDs found in the dataset.")
+                 except Exception as debug_e:
+                     print(f"DEBUG: Error trying to get clip path: {debug_e}")
+                 # --- End of added debug section ---
             else:
                 print("Download might have failed or was interrupted. Check logs.")
         except Exception as download_e:
