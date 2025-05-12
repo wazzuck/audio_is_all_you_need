@@ -54,4 +54,6 @@ WANDB_ENTITY = "wazzuck" # Replace with your actual Wandb entity if different
 # MAX_DURATION_S = 4.0
 # N_MELS = 128
 # HOP_LENGTH = 512
-# NUM_CLASSES = 10 
+# NUM_CLASSES = 10
+
+TEMP_DOWNLOAD_DIR = "../assets/audio_is_all_you_need" 
