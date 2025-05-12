@@ -8,6 +8,7 @@ from sklearn.metrics import accuracy_score, classification_report
 import argparse
 import sys
 import json # Added import for json
+import huggingface_hub # Added for HF download
 # We need safetensors explicitly for saving, though TF integrates loading
 # from safetensors import safe_open # Not needed for model.save_weights
 
@@ -236,18 +237,41 @@ def train_model(X, y, folds, num_classes, model_dir, epochs=50, batch_size=32):
         print(f"Final training state recorded: {final_state}")
 
 def main(args):
-    print("Loading preprocessed data...")
+    print("Checking for processed data...")
+
+    # Check if the processed data directory exists
+    if not os.path.exists(args.processed_dir):
+        print(f"Processed data not found locally at '{args.processed_dir}'.")
+        print(f"Attempting to download from Hugging Face Hub: {config.HF_REPO_ID}")
+        print("Please ensure you have internet access and 'huggingface_hub' installed.")
+        try:
+            huggingface_hub.snapshot_download(
+                repo_id=config.HF_REPO_ID,
+                repo_type="dataset",
+                local_dir=args.processed_dir,
+                local_dir_use_symlinks=False # Download files directly
+            )
+            print(f"Successfully downloaded data to {args.processed_dir}")
+        except Exception as e:
+            print(f"Error downloading data from Hugging Face Hub: {e}")
+            print(f"Please ensure the repository '{config.HF_REPO_ID}' exists and is accessible.")
+            print("Alternatively, run 'python preprocess_data.py' to generate the data locally.")
+            return # Exit if download fails
+    else:
+        print(f"Found processed data locally at {args.processed_dir}")
+
+    print("\nLoading preprocessed data...")
     try:
         X = load_pickle(os.path.join(args.processed_dir, 'features.pkl'))
         y = load_pickle(os.path.join(args.processed_dir, 'labels.pkl'))
         folds = load_pickle(os.path.join(args.processed_dir, 'folds.pkl'))
     except FileNotFoundError:
-        print(f"Error: Processed data not found in {args.processed_dir}.")
-        print("Please run 'python scripts/preprocess_data.py' first.")
+        print(f"Error: Processed data files (e.g., features.pkl) not found in {args.processed_dir} even after check/download.")
+        print("There might be an issue with the downloaded data or the preprocessing script output.")
         return
 
     if X is None or y is None or folds is None:
-         print("Error loading data. Exiting.")
+         print("Error loading one or more data files (features, labels, folds). Exiting.")
          return
 
     print("Starting model training...")

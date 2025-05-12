@@ -13,6 +13,8 @@ import numpy as np
 from data_loader import load_and_process_data
 from utils import save_pickle
 import config
+import huggingface_hub # Added for HF upload
+import shutil # Added for potential cleanup
 
 # Default paths (relative to project root) - Now fetched from config
 # DEFAULT_DATA_DIR = 'data'
@@ -49,6 +51,35 @@ def main(args):
     save_pickle(class_mapping, os.path.join(args.output_dir, 'class_mapping.pkl'))
 
     print(f"Preprocessing complete. Processed data saved to {args.output_dir}")
+
+    # Upload to Hugging Face Hub
+    print(f"Attempting to upload processed data to Hugging Face Hub repository: {config.HF_REPO_ID}")
+    print("Please ensure you have logged in via 'huggingface-cli login' and have write access to the repository.")
+    try:
+        # Create a temporary folder with a more descriptive name for the dataset card
+        # (e.g. "processed_urbansound8k") if desired, or upload output_dir directly.
+        # For simplicity, directly uploading output_dir.
+        # The path_in_repo can be used to organize files within the HF dataset.
+        # For example, path_in_repo="processed_data"
+        
+        repo_url = huggingface_hub.upload_folder(
+            folder_path=args.output_dir,
+            repo_id=config.HF_REPO_ID,
+            repo_type="dataset",
+            commit_message=f"Add processed UrbanSound8K data from {args.output_dir}",
+            path_in_repo="." # Upload to the root of the dataset repo
+        )
+        print(f"Successfully uploaded processed data to: {repo_url}")
+
+        # Optional: Clean up local processed files after upload if desired
+        # print(f"Cleaning up local directory: {args.output_dir}")
+        # shutil.rmtree(args.output_dir)
+        # print("Local cleanup complete.")
+
+    except Exception as e:
+        print(f"Error uploading to Hugging Face Hub: {e}")
+        print("Please check your authentication, internet connection, and repository permissions.")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Preprocess UrbanSound8K audio data into Mel spectrogram features.')
