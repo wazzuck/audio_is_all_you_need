@@ -60,24 +60,40 @@ This project implements a CNN-based model, inspired by common audio classificati
     git clone <your-repo-url>
     cd <repository-directory>
     ```
-2.  **Run the initial Anaconda setup script:**
-    This script will download and run the Anaconda installer. Follow the prompts during the installation.
+
+2.  **Python Version Prerequisite (IMPORTANT):**
+    This project requires **Python 3.11** due to TensorFlow compatibility. The setup scripts will configure a Conda environment with this Python version.
+
+3.  **Run the initial Anaconda setup script (`00_setup.sh`):**
+    This script will help you download and run the Anaconda installer if you don't have Conda already. Follow the prompts during the installation.
     ```bash
     bash 00_setup.sh
     ```
-3.  **IMPORTANT: Close and Reopen Terminal:**
-    After `00_setup.sh` finishes, you **must** close your current terminal window and open a new one. This ensures that the changes made by the Anaconda installer (like updating your system's PATH) are recognized by the shell.
+    *If you already have Conda installed and initialized, you might be able to skip this step, but ensure your Conda base environment is accessible.* 
 
-4.  **Run the environment setup script:**
-    In the **new** terminal window, navigate back to the project directory and run the second script. This will typically create the specific conda environment for this project and install the required dependencies from `requirements.txt`.
+4.  **IMPORTANT: Close and Reopen Terminal (after `00_setup.sh` if run):**
+    If you ran `00_setup.sh`, you **must** close your current terminal window and open a new one. This ensures that the changes made by the Anaconda installer (like updating your system's PATH) are recognized by the shell.
+
+5.  **Run the environment setup script (`01_setup.sh`):**
+    In the **new** terminal window (if applicable), navigate back to the project directory and run the second script. This script will:
+    *   Create a Conda environment named `tf_env` with Python 3.11 (if it doesn't already exist).
+    *   Activate the `tf_env` environment.
+    *   Install the required Python dependencies from `requirements.txt` into `tf_env`.
     ```bash
     cd <repository-directory> # If needed
     bash 01_setup.sh
     ```
-5.  **Activate the Conda Environment (if needed):**
-    The `01_setup.sh` script *might* activate the environment automatically. If not, or if you need to activate it in a later session, use the command specified in `01_setup.sh` (usually something like `conda activate <your_env_name>`).
+
+6.  **Activate the Conda Environment (for future sessions):**
+    The `01_setup.sh` script activates the `tf_env` environment. For any future sessions, you will need to manually activate it before running project scripts:
+    ```bash
+    conda activate tf_env
+    ```
+    To deactivate the environment, you can use `conda deactivate`.
 
 ## Usage
+
+**Ensure the `tf_env` Conda environment is activated (`conda activate tf_env`) before running any Python scripts.**
 
 Follow these steps in order:
 
