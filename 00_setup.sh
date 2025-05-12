@@ -1,57 +1,64 @@
 #!/bin/bash
 
-echo "This script will download and start the Anaconda installer for Linux x86_64."
-echo "Please follow the prompts from the installer."
-echo "It is recommended to install Anaconda for the current user only."
+# Set Git config (optional, keep if desired)
+git config --global user.email "user@example.com"
+git config --global user.name "User Name"
 
-# Define Anaconda version and installer filename
-ANACONDA_VERSION="2024.02-1" # Check for the latest version if needed
-INSTALLER_FILENAME="Anaconda3-${ANACONDA_VERSION}-Linux-x86_64.sh"
-DOWNLOAD_URL="https://repo.anaconda.com/archive/${INSTALLER_FILENAME}"
+echo "--- Setting up Miniconda ---"
 
-# Define download location
-DOWNLOAD_DIR="/tmp"
-INSTALLER_PATH="${DOWNLOAD_DIR}/${INSTALLER_FILENAME}"
+# Determine architecture based on hostname
+HOSTNAME=$(hostname)
+if [ "$HOSTNAME" = "penguin" ]; then
+  echo "Hostname is 'penguin'. Selecting Miniconda for aarch64."
+  MINICONDA_SCRIPT="Miniconda3-latest-Linux-aarch64.sh"
+else
+  echo "Hostname is '$HOSTNAME'. Selecting Miniconda for x86_64."
+  MINICONDA_SCRIPT="Miniconda3-latest-Linux-x86_64.sh"
+fi
 
-# ANSI Color Codes
-BOLD_RED='\033[1;31m'
-NC='\033[0m' # No Color
+MINICONDA_URL="https://repo.anaconda.com/miniconda/${MINICONDA_SCRIPT}"
+INSTALLER_PATH="$HOME/miniconda3/miniconda.sh" # Consistent installer path
 
-echo "Downloading Anaconda installer..."
-wget -O "${INSTALLER_PATH}" "${DOWNLOAD_URL}"
+# Create directory and download installer
+mkdir -p "$HOME/miniconda3"
+echo "Downloading $MINICONDA_SCRIPT..."
+wget "$MINICONDA_URL" -O "$INSTALLER_PATH"
 
+# Check if download was successful
 if [ $? -ne 0 ]; then
-  echo "Error downloading Anaconda installer. Please check the URL or your internet connection."
-  exit 1
+    echo "Error downloading Miniconda from $MINICONDA_URL. Exiting."
+    exit 1
 fi
 
-echo "Download complete. Starting the installer..."
-
-# Make the installer executable
-chmod +x "${INSTALLER_PATH}"
-
-# Run the installer
-"${INSTALLER_PATH}"
-
-# Check if installation was successful (basic check by installer exit code)
-INSTALL_EXIT_CODE=$?
-
-# Optional: Clean up the installer script regardless of exit code (unless user wants to retry)
-# Uncomment the line below if you want to force removal:
-# rm "${INSTALLER_PATH}"
-
-if [ ${INSTALL_EXIT_CODE} -ne 0 ]; then
-  echo "Anaconda installation may have failed or was cancelled (Exit Code: ${INSTALL_EXIT_CODE})."
-  exit 1
+# Install Miniconda
+echo "Installing Miniconda..."
+bash "$INSTALLER_PATH" -b -u -p "$HOME/miniconda3"
+if [ $? -ne 0 ]; then
+    echo "Error installing Miniconda. Exiting."
+    # Clean up installer if installation failed but download succeeded
+    rm "$INSTALLER_PATH"
+    exit 1
 fi
 
-echo "Anaconda installation script finished."
+# Clean up installer
+rm "$INSTALLER_PATH"
+
+# Initialize Conda
+echo "Initializing Conda..."
+source "$HOME/miniconda3/bin/activate"
+# The following line might require shell restart to take full effect
+conda init --all
+
+echo "--- Conda Setup complete! ---"
+echo "Please restart your shell or run 'source ~/.bashrc' (or ~/.zshrc etc.) for Conda initialization to take effect."
+
+echo "Miniconda installation script finished."
 echo "---------------------------------------------------------------------"
 # Print the prominent warning message in bold red
 echo -e "${BOLD_RED}"
 echo "*********************************************************************"
 echo "*                                                                   *"
-echo "*      ANACONDA INSTALLATION COMPLETE - ACTION REQUIRED!            *"
+echo "*      MINICONDA INSTALLATION COMPLETE - ACTION REQUIRED!            *"
 echo "*                                                                   *"
 echo "* You MUST close this terminal/SSH session and open a NEW one.      *"
 echo "* This is required for shell configuration changes to take effect.    *"
