@@ -1,10 +1,38 @@
+#!/bin/bash
+# Source the user's bash configuration to make conda available
+# This assumes conda init has been run for the bash shell.
+if [ -f ~/.bashrc ]; then
+    echo "Sourcing ~/.bashrc to find conda..."
+    source ~/.bashrc
+else
+    echo "Warning: ~/.bashrc not found. Conda might not be available in the script's PATH."
+fi
+
 echo "--- Setting up Conda Environment and Installing Dependencies ---"
 
 ENV_NAME="tf_env"
 PYTHON_VERSION="3.11"
 
+# Now, try to find conda root using conda info (should be available if .bashrc worked)
+_CONDA_ROOT=$(conda info --base 2>/dev/null) # Try to get conda root silently
+
+# If conda info worked, source the specific conda.sh - more robust
+if [ -n "$_CONDA_ROOT" ] && [ -f "$_CONDA_ROOT/etc/profile.d/conda.sh" ]; then
+    echo "Found Conda root: $_CONDA_ROOT. Sourcing profile.d/conda.sh..."
+    source "$_CONDA_ROOT/etc/profile.d/conda.sh"
+else 
+    echo "Warning: Could not reliably find Conda root or profile.d/conda.sh. Proceeding, but activation might rely solely on sourced ~/.bashrc."
+fi
+
 echo "Checking if conda environment '$ENV_NAME' exists..."
 # Check if environment exists
+# Add error handling for the initial conda check
+if ! command -v conda &> /dev/null; then
+    echo "Error: 'conda' command still not found after sourcing ~/.bashrc. Cannot proceed."
+    echo "Please ensure Conda is installed and initialized correctly (e.g., run 'conda init bash')."
+    exit 1
+fi
+
 if conda info --envs | grep -q "^$ENV_NAME\s"; then
     echo "Environment '$ENV_NAME' already exists."
 else
@@ -18,16 +46,8 @@ else
 fi
 
 # Activate the environment
-# Sourcing activate script is more reliable in scripts than `conda activate`
+# This should work now because conda command is available and conda.sh was sourced.
 echo "Activating conda environment '$ENV_NAME'..."
-# Find CONDA_PREFIX (might not be set if base isn't active)
-_CONDA_ROOT=$(conda info --base)
-echo "CONDA ROOT: $_CONDA_ROOT"
-if [ -z "$_CONDA_ROOT" ]; then
-    echo "Could not determine Conda base directory. Please ensure Conda is initialized." 
-    exit 1
-fi
-source "$_CONDA_ROOT/etc/profile.d/conda.sh"
 conda activate $ENV_NAME
 if [ $? -ne 0 ]; then
     echo "Error activating conda environment '$ENV_NAME'. Exiting."
