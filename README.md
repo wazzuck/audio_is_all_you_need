@@ -60,16 +60,22 @@ This project implements a CNN-based model, inspired by common audio classificati
     git clone <your-repo-url>
     cd <repository-directory>
     ```
-2.  **Create a virtual environment (recommended):**
+2.  **Run the initial Anaconda setup script:**
+    This script will download and run the Anaconda installer. Follow the prompts during the installation.
     ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+    bash 00_setup.sh
     ```
-3.  **Install dependencies:**
+3.  **IMPORTANT: Close and Reopen Terminal:**
+    After `00_setup.sh` finishes, you **must** close your current terminal window and open a new one. This ensures that the changes made by the Anaconda installer (like updating your system's PATH) are recognized by the shell.
+
+4.  **Run the environment setup script:**
+    In the **new** terminal window, navigate back to the project directory and run the second script. This will typically create the specific conda environment for this project and install the required dependencies from `requirements.txt`.
     ```bash
-    pip install -r requirements.txt
+    cd <repository-directory> # If needed
+    bash 01_setup.sh
     ```
-    *(Ensure you have Python 3.8+ installed).*
+5.  **Activate the Conda Environment (if needed):**
+    The `01_setup.sh` script *might* activate the environment automatically. If not, or if you need to activate it in a later session, use the command specified in `01_setup.sh` (usually something like `conda activate <your_env_name>`).
 
 ## Usage
 
