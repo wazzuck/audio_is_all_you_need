@@ -13,6 +13,10 @@ DOWNLOAD_URL="https://repo.anaconda.com/archive/${INSTALLER_FILENAME}"
 DOWNLOAD_DIR="/tmp"
 INSTALLER_PATH="${DOWNLOAD_DIR}/${INSTALLER_FILENAME}"
 
+# ANSI Color Codes
+BOLD_RED='\033[1;31m'
+NC='\033[0m' # No Color
+
 echo "Downloading Anaconda installer..."
 wget -O "${INSTALLER_PATH}" "${DOWNLOAD_URL}"
 
@@ -30,23 +34,34 @@ chmod +x "${INSTALLER_PATH}"
 "${INSTALLER_PATH}"
 
 # Check if installation was successful (basic check by installer exit code)
-if [ $? -ne 0 ]; then
-  echo "Anaconda installation may have failed or was cancelled."
-  # Clean up installer
-  # rm "${INSTALLER_PATH}"
+INSTALL_EXIT_CODE=$?
+
+# Optional: Clean up the installer script regardless of exit code (unless user wants to retry)
+# Uncomment the line below if you want to force removal:
+# rm "${INSTALLER_PATH}"
+
+if [ ${INSTALL_EXIT_CODE} -ne 0 ]; then
+  echo "Anaconda installation may have failed or was cancelled (Exit Code: ${INSTALL_EXIT_CODE})."
   exit 1
 fi
 
 echo "Anaconda installation script finished."
-echo "-------------------------------------------------------------"
-echo "IMPORTANT: Please CLOSE this terminal and open a NEW one."
-echo "This is necessary for the shell configuration changes (like adding conda to PATH) to take effect."
-echo "After opening a new terminal, run the 01_setup.sh script."
-echo "-------------------------------------------------------------"
-
-# Optional: Clean up the installer script after successful execution?
-# Usually the installer asks if you want to remove it.
-# Uncomment the line below if you want to force removal:
-# rm "${INSTALLER_PATH}"
+echo "---------------------------------------------------------------------"
+# Print the prominent warning message in bold red
+echo -e "${BOLD_RED}"
+echo "*********************************************************************"
+echo "*                                                                   *"
+echo "*      ANACONDA INSTALLATION COMPLETE - ACTION REQUIRED!            *"
+echo "*                                                                   *"
+echo "* You MUST close this terminal/SSH session and open a NEW one.      *"
+echo "* This is required for shell configuration changes to take effect.    *"
+echo "* The script cannot safely force this closure for you.              *"
+echo "*                                                                   *"
+echo "* After opening a new terminal, run the 01_setup.sh script.         *"
+echo "*                                                                   *"
+echo "*********************************************************************"
+# Reset color
+echo -e "${NC}"
+echo "---------------------------------------------------------------------"
 
 exit 0
