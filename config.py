@@ -45,7 +45,7 @@ HF_REPO_ID = "wazzuck/audio_is_all_you_need"
 WANDB_PROJECT = "audio_is_all_you_need"
 
 # Wandb Entity (Username or Team Name) - **PLEASE VERIFY/UPDATE THIS**
-WANDB_ENTITY = "nevillebryce" # Replace with your actual Wandb entity if different
+WANDB_ENTITY = "nevillebryce-ai-learning" # Replace with your actual Wandb entity if different
 
 
 # --- Potentially Add More ---
