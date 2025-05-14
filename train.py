@@ -9,6 +9,8 @@ import argparse
 import sys
 import json # Added import for json
 import huggingface_hub # Added for HF download
+import wandb # Added for Weights & Biases
+from wandb.keras import WandbCallback # Added for Weights & Biases Keras integration
 # We need safetensors explicitly for saving, though TF integrates loading
 # from safetensors import safe_open # Not needed for model.save_weights
 
@@ -175,7 +177,7 @@ def train_model(X, y, folds, num_classes, model_dir, epochs=50, batch_size=32):
                           epochs=epochs,
                           batch_size=batch_size,
                           validation_data=(X_test, y_test),
-                          callbacks=[model_checkpoint_callback, state_callback, early_stopping, reduce_lr], # Added state_callback
+                          callbacks=[model_checkpoint_callback, state_callback, early_stopping, reduce_lr, WandbCallback(save_model=False)], # Added WandbCallback
                           initial_epoch=initial_epoch, # Start from the correct epoch
                           verbose=1)
 
@@ -226,6 +228,14 @@ def train_model(X, y, folds, num_classes, model_dir, epochs=50, batch_size=32):
     print(f"Individual Fold Accuracies: {[f'{acc:.4f}' for acc in fold_accuracies]}")
     print(f"Average Accuracy: {mean_accuracy:.4f} (+/- {std_accuracy:.4f})")
 
+    # Log overall results to W&B if a run is active
+    if wandb.run is not None:
+        wandb.log({
+            "overall_mean_accuracy": mean_accuracy,
+            "overall_std_accuracy": std_accuracy,
+            "individual_fold_accuracies": fold_accuracies # W&B can log lists
+        })
+
     # Save histories using pickle
     save_pickle(fold_histories, os.path.join(model_dir, 'all_fold_histories.pkl'))
 
@@ -238,6 +248,25 @@ def train_model(X, y, folds, num_classes, model_dir, epochs=50, batch_size=32):
 
 def main(args):
     print("Checking for processed data...")
+
+    # Initialize Weights & Biases
+    try:
+        wandb.init(
+            project=config.WANDB_PROJECT,
+            entity=config.WANDB_ENTITY,
+            config={
+                "epochs": args.epochs,
+                "batch_size": args.batch_size,
+                "processed_dir": args.processed_dir,
+                "model_dir": args.model_dir,
+                "num_classes": NUM_CLASSES, # Log this important parameter
+                # Add other relevant config from 'config.py' or args if desired
+            }
+        )
+        print(f"Weights & Biases initialized for project: {config.WANDB_PROJECT}, entity: {config.WANDB_ENTITY}")
+    except Exception as e:
+        print(f"Could not initialize Weights & Biases: {e}. Training will continue without W&B logging.")
+        # Optionally, set a flag or handle this to prevent W&B calls later if init failed
 
     # Check if the processed data directory exists
     if not os.path.exists(args.processed_dir):
@@ -281,6 +310,11 @@ def main(args):
                 epochs=args.epochs,
                 batch_size=args.batch_size)
     print("Training complete. Models saved as .safetensors files.")
+
+    # Finish W&B run at the end
+    if wandb.run is not None:
+        wandb.finish()
+        print("Weights & Biases run finished.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train the UrbanSound8K CNN model using 10-fold cross-validation, saving weights as .safetensors.')
