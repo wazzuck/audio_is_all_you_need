@@ -6,7 +6,7 @@ import os
 DATA_DIR = '../assets/audio_is_all_you_need'
 
 # Directory for preprocessed features, labels, etc.
-PROCESSED_DIR = os.path.join('data', 'processed')
+PROCESSED_DIR = os.path.join(ASSETS_BASE_DIR, 'data')
 
 # Directory to save final trained model weights/files
 MODEL_DIR = 'models'
