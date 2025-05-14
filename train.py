@@ -13,6 +13,7 @@ import huggingface_hub
 import wandb
 from safetensors.torch import save_file as save_safetensors
 import time # For timing epochs
+from tqdm import tqdm # Added tqdm import
 
 from utils import load_pickle, save_pickle
 from model import AudioCNN # Import the PyTorch model
@@ -199,7 +200,9 @@ def train_model(X_all, y_all, folds_all, num_classes_global, model_dir, epochs=5
             correct_train = 0
             total_train = 0
 
-            for batch_idx, (inputs, targets) in enumerate(train_loader):
+            # Wrap train_loader with tqdm for a progress bar
+            train_pbar = tqdm(train_loader, desc=f"Fold {fold_num_actual} Epoch {epoch + 1}/{epochs} Training", leave=False)
+            for batch_idx, (inputs, targets) in enumerate(train_pbar):
                 # inputs, targets = inputs.to(device), targets.to(device) # Already on device
                 optimizer.zero_grad()
                 outputs = model(inputs)
@@ -223,7 +226,9 @@ def train_model(X_all, y_all, folds_all, num_classes_global, model_dir, epochs=5
             correct_val = 0
             total_val = 0
             with torch.no_grad():
-                for inputs, targets in test_loader:
+                # Optionally, wrap test_loader with tqdm as well for validation progress
+                val_pbar = tqdm(test_loader, desc=f"Fold {fold_num_actual} Epoch {epoch + 1}/{epochs} Validation", leave=False)
+                for inputs, targets in val_pbar:
                     # inputs, targets = inputs.to(device), targets.to(device) # Already on device
                     outputs = model(inputs)
                     loss = criterion(outputs, targets)
