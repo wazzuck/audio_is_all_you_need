@@ -46,7 +46,7 @@ DEFAULT_BATCH_SIZE = 32
 HF_REPO_ID = "wazzuck/audio_is_all_you_need"
 
 # Hugging Face Hub Repository ID for Models - PLEASE UPDATE THIS TO YOUR ACTUAL MODEL REPO NAME
-HF_MODEL_REPO_ID = "wazzuck/audio_is_all_you_need-models" # Example: replace with your desired model repo ID
+HF_MODEL_REPO_ID = "wazzuck/audio_is_all_you_need" # Changed to match the desired model repo ID
 
 # Wandb Project Name
 WANDB_PROJECT = "audio_is_all_you_need"
