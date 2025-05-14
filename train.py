@@ -406,6 +406,26 @@ def main(args):
             "learning_rate": args.learning_rate,
         }, allow_val_change=True)
 
+    # Ensure Hugging Face model repository exists
+    print(f"Attempting to ensure Hugging Face model repository '{config.HF_MODEL_REPO_ID}' exists (repo_type='model')...")
+    try:
+        repo_url_or_info = huggingface_hub.create_repo(
+            repo_id=config.HF_MODEL_REPO_ID,
+            repo_type="model",
+            exist_ok=True
+        )
+        if hasattr(repo_url_or_info, 'repo_id'): # create_repo returns a RepoInfo object on success
+            print(f"Successfully ensured/verified Hugging Face model repository: {repo_url_or_info.repo_id}")
+        else: # Fallback for older versions or different return types, though RepoInfo is standard
+            print(f"Successfully ensured/verified Hugging Face model repository: {config.HF_MODEL_REPO_ID}")
+            
+    except huggingface_hub.utils.HfHubHTTPError as e_http: # More specific exception for HTTP errors
+        print(f"HTTP Error creating/verifying Hugging Face model repository '{config.HF_MODEL_REPO_ID}': {e_http}")
+        print(f"This usually means the repository name is invalid, you lack permissions, or there was a Hub-side issue.")
+        print("Model uploads will likely fail. Please check your Hugging Face Hub settings and permissions.")
+    except Exception as e: # Catch-all for other errors
+        print(f"Error creating/verifying Hugging Face model repository '{config.HF_MODEL_REPO_ID}': {e}")
+        print("Model uploads might fail.")
 
     # Define paths for essential processed files
     features_path = os.path.join(args.processed_dir, 'features.pkl')
