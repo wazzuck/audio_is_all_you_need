@@ -362,38 +362,73 @@ def main(args):
         }, allow_val_change=True)
 
 
-    # Check if the processed data directory exists
-    if not os.path.exists(args.processed_dir):
-        print(f"Processed data not found locally at '{args.processed_dir}'.")
-        print(f"Attempting to download from Hugging Face Hub: {config.HF_REPO_ID}")
-        print("Please ensure you have internet access and 'huggingface_hub' installed.")
+    # Define paths for essential processed files
+    features_path = os.path.join(args.processed_dir, 'features.pkl')
+    labels_path = os.path.join(args.processed_dir, 'labels.pkl')
+    folds_path = os.path.join(args.processed_dir, 'folds.pkl')
+    # class_mapping_path = os.path.join(args.processed_dir, 'class_mapping.pkl') # Also downloaded if present
+
+    # Check if all essential files exist
+    all_files_exist = (
+        os.path.exists(features_path) and
+        os.path.exists(labels_path) and
+        os.path.exists(folds_path)
+    )
+
+    if not all_files_exist:
+        print(f"One or more processed data files (features.pkl, labels.pkl, folds.pkl) not found in '{args.processed_dir}'.")
+        print(f"Attempting to download from Hugging Face Hub: {config.HF_REPO_ID} to {args.processed_dir}")
+        os.makedirs(args.processed_dir, exist_ok=True) # Ensure target directory exists
         try:
             huggingface_hub.snapshot_download(
                 repo_id=config.HF_REPO_ID,
                 repo_type="dataset",
-                local_dir=args.processed_dir,
-                local_dir_use_symlinks=False
+                local_dir=args.processed_dir, # Files will be placed directly in here
+                local_dir_use_symlinks=False,
+                allow_patterns=["features.pkl", "labels.pkl", "folds.pkl", "class_mapping.pkl"] # Specify exact files
             )
-            print(f"Successfully downloaded data to {args.processed_dir}")
+            print(f"Download attempt finished for {args.processed_dir}.")
+            # Re-check if files exist after download
+            all_files_exist = (
+                os.path.exists(features_path) and
+                os.path.exists(labels_path) and
+                os.path.exists(folds_path)
+            )
+            if not all_files_exist:
+                print(f"Error: Required data files still missing after download attempt from {config.HF_REPO_ID}.")
+                print(f"Please ensure features.pkl, labels.pkl, and folds.pkl are present in the Hugging Face dataset at the root level.")
+                print("Alternatively, run 'python preprocess_data.py' to generate the data locally.")
+                if wandb.run: wandb.finish()
+                return
+            else:
+                print(f"Successfully found/downloaded required files in {args.processed_dir}.")
         except Exception as e:
-            print(f"Error downloading data from Hugging Face Hub: {e}")
-            print(f"Please ensure the repository '{config.HF_REPO_ID}' exists and is accessible.")
+            print(f"Error during data download from Hugging Face Hub: {e}")
+            print(f"Please ensure the repository '{config.HF_REPO_ID}' exists, is accessible, and contains the required files at its root.")
             print("Alternatively, run 'python preprocess_data.py' to generate the data locally.")
+            if wandb.run: wandb.finish()
             return
     else:
-        print(f"Found processed data locally at {args.processed_dir}")
+        print(f"Found all required processed data files locally in {args.processed_dir}")
 
     print("\nLoading preprocessed data...")
     try:
-        X = load_pickle(os.path.join(args.processed_dir, 'features.pkl'))
-        y = load_pickle(os.path.join(args.processed_dir, 'labels.pkl'))
-        folds = load_pickle(os.path.join(args.processed_dir, 'folds.pkl'))
-    except FileNotFoundError:
-        print(f"Error: Processed data files (e.g., features.pkl) not found in {args.processed_dir}.")
+        X = load_pickle(features_path)
+        y = load_pickle(labels_path)
+        folds = load_pickle(folds_path)
+    except FileNotFoundError: # This is a safeguard, should ideally be caught by earlier checks
+        print(f"Critical Error: Processed data files were expected but not found in {args.processed_dir}.")
+        print("This should have been caught by earlier checks. Please investigate.")
+        if wandb.run: wandb.finish()
+        return
+    except Exception as e: # Catch other potential loading errors
+        print(f"Error loading processed data files: {e}")
+        if wandb.run: wandb.finish()
         return
 
     if X is None or y is None or folds is None:
-         print("Error loading one or more data files (features, labels, folds). Exiting.")
+         print("Error: One or more data components (X, y, folds) are None after loading. Exiting.")
+         if wandb.run: wandb.finish()
          return
 
     print(f"Shape of X after loading: {X.shape}")

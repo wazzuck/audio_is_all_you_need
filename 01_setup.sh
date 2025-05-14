@@ -74,7 +74,7 @@ if [ "$HOSTNAME" != "penguin" ]; then
 fi
 
 apt-get update
-apt-get install vim
+apt-get install vim htop 
 
 # --- Attempt to add conda activation to .bashrc for future login shells ---
 echo ""
