@@ -396,6 +396,18 @@ def main(args):
          print("Error loading one or more data files (features, labels, folds). Exiting.")
          return
 
+    print(f"Shape of X after loading: {X.shape}")
+    if X.ndim == 4 and X.shape[1] == 1:
+        print(f"Reshaping X from {X.shape} to 3D by squeezing dimension 1.")
+        X = X.squeeze(1)
+    elif X.ndim == 4:
+        if X.shape[3] == 1:
+            print(f"Reshaping X from {X.shape} to 3D by squeezing dimension 3 (the last dimension).")
+            X = X.squeeze(3)
+        else:
+            print(f"X is 4D with shape {X.shape}, but the channel dimension (assumed to be 1 or 3) is not of size 1. Cannot safely squeeze.")
+
+
     print("Starting model training...")
     train_model(X, y, folds,
                 num_classes_global=NUM_CLASSES,
