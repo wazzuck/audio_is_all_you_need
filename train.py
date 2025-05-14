@@ -125,12 +125,12 @@ def train_model(X, y, folds, num_classes, model_dir, epochs=50, batch_size=32):
 
         # Define checkpoint path for this fold
         fold_checkpoint_dir = os.path.join(CHECKPOINT_BASE_DIR, f'fold_{fold_num}')
-        checkpoint_filepath = os.path.join(fold_checkpoint_dir, 'epoch_{epoch:02d}') # TF saves directory
+        checkpoint_filepath = os.path.join(fold_checkpoint_dir, 'epoch_{epoch:02d}.keras') # TF saves directory, now with .keras
 
         # Load weights if resuming this fold
         if initial_epoch > 0:
-            resume_checkpoint_path = os.path.join(fold_checkpoint_dir, f'epoch_{initial_epoch:02d}')
-            if os.path.exists(resume_checkpoint_path): # Check if directory exists
+            resume_checkpoint_path = os.path.join(fold_checkpoint_dir, f'epoch_{initial_epoch:02d}.keras') # Added .keras
+            if os.path.exists(resume_checkpoint_path): # Check if file exists
                 try:
                     print(f"Loading model state from checkpoint: {resume_checkpoint_path}")
                     # Load the entire model state
@@ -189,7 +189,7 @@ def train_model(X, y, folds, num_classes, model_dir, epochs=50, batch_size=32):
         print(f"Best epoch for Fold {fold_num}: {best_epoch} with val_accuracy: {best_val_accuracy:.4f}")
 
         # Load the model state from the best epoch's checkpoint
-        best_checkpoint_path = os.path.join(fold_checkpoint_dir, f'epoch_{best_epoch:02d}')
+        best_checkpoint_path = os.path.join(fold_checkpoint_dir, f'epoch_{best_epoch:02d}.keras') # Added .keras
         if os.path.exists(best_checkpoint_path):
              print(f"Loading best model state from: {best_checkpoint_path}")
              # Load the best model state to save its weights
