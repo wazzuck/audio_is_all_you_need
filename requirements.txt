@@ -1,4 +1,3 @@
-# tensorflow>=2.8.0 # Removed, will install via conda
 tensorflow>=2.8.0 # Ensure tensorflow is listed and uncommented
 librosa>=0.9.0
 numpy>=1.20.0

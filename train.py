@@ -10,7 +10,7 @@ import sys
 import json # Added import for json
 import huggingface_hub # Added for HF download
 import wandb # Added for Weights & Biases
-from wandb.keras import WandbCallback # Added for Weights & Biases Keras integration
+from wandb.integration.keras import WandbCallback # Changed import path
 # We need safetensors explicitly for saving, though TF integrates loading
 # from safetensors import safe_open # Not needed for model.save_weights
 
