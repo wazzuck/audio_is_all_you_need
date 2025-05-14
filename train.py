@@ -162,7 +162,7 @@ def train_model(X_all, y_all, folds_all, num_classes_global, model_dir, epochs=5
 
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
         criterion = nn.CrossEntropyLoss()
-        scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.2, patience=5, verbose=True, min_lr=0.00001)
+        scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.2, patience=5, min_lr=0.00001)
 
         fold_checkpoint_dir = os.path.join(CHECKPOINT_BASE_DIR, f'fold_{fold_num_actual}')
         
