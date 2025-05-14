@@ -21,7 +21,7 @@ DATA_DIR = ASSETS_BASE_DIR # Assuming DATA_DIR should also point to the assets b
 PROCESSED_DIR = os.path.join(ASSETS_BASE_DIR, 'data')
 
 # Directory to save final trained model weights/files
-MODEL_DIR = 'models' # This is relative to project root, which is fine.
+MODEL_DIR = os.path.join(ASSETS_BASE_DIR, 'models') # Changed to use ASSETS_BASE_DIR for an absolute path
 
 # Define checkpoint directory within the assets base dir
 CHECKPOINT_SUBDIR = 'checkpoints'
@@ -44,6 +44,9 @@ DEFAULT_BATCH_SIZE = 32
 
 # Hugging Face Hub Repository ID
 HF_REPO_ID = "wazzuck/audio_is_all_you_need"
+
+# Hugging Face Hub Repository ID for Models - PLEASE UPDATE THIS TO YOUR ACTUAL MODEL REPO NAME
+HF_MODEL_REPO_ID = "wazzuck/audio_is_all_you_need-models" # Example: replace with your desired model repo ID
 
 # Wandb Project Name
 WANDB_PROJECT = "audio_is_all_you_need"

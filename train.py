@@ -273,7 +273,7 @@ def train_model(X_all, y_all, folds_all, num_classes_global, model_dir, epochs=5
                 hf_upload_url = huggingface_hub.upload_file(
                     path_or_fileobj=safetensors_epoch_local_path,
                     path_in_repo=hf_path_in_repo,
-                    repo_id=config.HF_REPO_ID, # Using the existing repo ID
+                    repo_id=config.HF_MODEL_REPO_ID, # Changed to HF_MODEL_REPO_ID
                     repo_type="model",
                     commit_message=f"Upload model checkpoint: Fold {fold_num_actual}, Epoch {epoch}"
                 )
@@ -357,13 +357,13 @@ def train_model(X_all, y_all, folds_all, num_classes_global, model_dir, epochs=5
     # Ensure Hugging Face model repository exists
     try:
         huggingface_hub.create_repo(
-            repo_id=config.HF_REPO_ID,
+            repo_id=config.HF_MODEL_REPO_ID, # Changed to HF_MODEL_REPO_ID
             repo_type="model",
             exist_ok=True
         )
-        print(f"Ensured Hugging Face model repository {config.HF_REPO_ID} exists or was created.")
+        print(f"Ensured Hugging Face model repository {config.HF_MODEL_REPO_ID} exists or was created.")
     except Exception as e:
-        print(f"Warning: Could not create/verify Hugging Face model repository {config.HF_REPO_ID}: {e}. Model uploads might fail.")
+        print(f"Warning: Could not create/verify Hugging Face model repository {config.HF_MODEL_REPO_ID}: {e}. Model uploads might fail.")
 
 
 def main(args):
