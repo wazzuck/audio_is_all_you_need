@@ -355,15 +355,25 @@ def train_model(X_all, y_all, folds_all, num_classes_global, model_dir, epochs=5
     print(f"Final training state recorded: {final_state_json}")
 
     # Ensure Hugging Face model repository exists
+    print(f"Attempting to ensure Hugging Face model repository '{config.HF_MODEL_REPO_ID}' exists (repo_type='model')...")
     try:
-        huggingface_hub.create_repo(
-            repo_id=config.HF_MODEL_REPO_ID, # Changed to HF_MODEL_REPO_ID
+        repo_url_or_info = huggingface_hub.create_repo(
+            repo_id=config.HF_MODEL_REPO_ID,
             repo_type="model",
             exist_ok=True
         )
-        print(f"Ensured Hugging Face model repository {config.HF_MODEL_REPO_ID} exists or was created.")
-    except Exception as e:
-        print(f"Warning: Could not create/verify Hugging Face model repository {config.HF_MODEL_REPO_ID}: {e}. Model uploads might fail.")
+        if hasattr(repo_url_or_info, 'repo_id'): # create_repo returns a RepoInfo object on success
+            print(f"Successfully ensured/verified Hugging Face model repository: {repo_url_or_info.repo_id}")
+        else: # Fallback for older versions or different return types, though RepoInfo is standard
+            print(f"Successfully ensured/verified Hugging Face model repository: {config.HF_MODEL_REPO_ID}")
+            
+    except huggingface_hub.utils.HfHubHTTPError as e_http: # More specific exception for HTTP errors
+        print(f"HTTP Error creating/verifying Hugging Face model repository '{config.HF_MODEL_REPO_ID}': {e_http}")
+        print(f"This usually means the repository name is invalid, you lack permissions, or there was a Hub-side issue.")
+        print("Model uploads will likely fail. Please check your Hugging Face Hub settings and permissions.")
+    except Exception as e: # Catch-all for other errors
+        print(f"Error creating/verifying Hugging Face model repository '{config.HF_MODEL_REPO_ID}': {e}")
+        print("Model uploads might fail.")
 
 
 def main(args):
