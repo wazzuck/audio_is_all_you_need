@@ -261,7 +261,7 @@ def main(args):
 
     # Initialize Weights & Biases
     try:
-        wandb.init(
+        run = wandb.init( # Assign the result to a variable
             project=config.WANDB_PROJECT,
             entity=config.WANDB_ENTITY,
             config={
@@ -273,9 +273,16 @@ def main(args):
                 # Add other relevant config from 'config.py' or args if desired
             }
         )
+        if run is None:
+            print("DEBUG: wandb.init() returned None directly.") # New debug line
+        else:
+            print(f"DEBUG: wandb.init() returned run object: {run}") # New debug line
+            print(f"DEBUG: wandb.run is: {wandb.run} (immediately after init)") # New debug line
+
         print(f"Weights & Biases initialized for project: {config.WANDB_PROJECT}, entity: {config.WANDB_ENTITY}")
     except Exception as e:
         print(f"Could not initialize Weights & Biases: {e}. Training will continue without W&B logging.")
+        print(f"DEBUG: wandb.run is: {wandb.run} (inside exception handler)") # New debug line
         # Optionally, set a flag or handle this to prevent W&B calls later if init failed
 
     # Check if the processed data directory exists
