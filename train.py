@@ -13,12 +13,12 @@ import huggingface_hub # Added for HF download
 # from safetensors import safe_open # Not needed for model.save_weights
 
 # Add src directory to Python path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) # This line is removed
 
-from src.utils import load_pickle, save_pickle # Keep save_pickle for history
-from src.model import build_cnn_model
-from src.data_loader import NUM_CLASSES # Use NUM_CLASSES from data_loader
-from src import config # Import config
+from utils import load_pickle, save_pickle # Keep save_pickle for history
+from model import build_cnn_model
+from data_loader import NUM_CLASSES # Use NUM_CLASSES from data_loader
+import config # Import config
 
 # Default paths - Now fetched from config
 # DEFAULT_PROCESSED_DIR = 'data/processed'

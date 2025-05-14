@@ -85,15 +85,7 @@ It
     ```
     *Note: The script activates `tf_env` only for its own duration. Your terminal will likely return to the `base` environment after the script finishes.* 
 
-6.  **Activate the Conda Environment (Manually Required for Each Session):**
-    Before running any project scripts (`download_data.py`, `preprocess_data.py`, `train.py`, `predict.py`), you **must** manually activate the `tf_env` environment in your terminal session:
-    ```bash
-    conda activate tf_env
-    ```
-    Your terminal prompt should change to indicate `(tf_env)` is active.
-    To deactivate the environment when you are finished, you can use `conda deactivate`.
-
-7.  **(Optional) Automatic Environment Activation:**
+6.  **(Optional) Automatic Environment Activation:**
     For convenience, you might want the `tf_env` environment to activate automatically whenever you navigate to this project directory in your terminal. This is **not** handled by the project setup scripts, as automatically modifying user shell configurations can be risky.
     If you desire this, you can explore tools like:
     *   [direnv](https://direnv.net/): A popular tool that loads/unloads environment variables (and can activate conda environments) based on the current directory.
