@@ -75,3 +75,51 @@ fi
 
 apt-get update
 apt-get install vim
+
+# --- Attempt to add conda activation to .bashrc for future login shells ---
+echo ""
+echo "--- Configuring .bashrc for automatic 'tf_env' activation ---"
+
+BASHRC_FILE="$HOME/.bashrc"
+ENV_NAME="tf_env" # Ensure this matches the environment name used in this script
+ACTIVATION_COMMAND="conda activate $ENV_NAME"
+MARKER_COMMENT="# Added by audio_is_all_you_need setup to activate $ENV_NAME"
+
+if [ -f "$BASHRC_FILE" ]; then
+    # Check if Conda itself is initialized in .bashrc
+    # This check is basic; a more robust check would look for the conda hook function.
+    if ! grep -q -E "(conda initialize|conda.sh)" "$BASHRC_FILE"; then
+        echo ""
+        echo "WARNING: Conda does not appear to be fully initialized in your $BASHRC_FILE." >&2
+        echo "         The line '$ACTIVATION_COMMAND' will be added, but it might not work on new logins." >&2
+        echo "         Please ensure 'conda init bash' has been run and its output is correctly sourced in $BASHRC_FILE." >&2
+        echo "         Look for a block of code starting with '# >>> conda initialize >>>' in $BASHRC_FILE." >&2
+        echo ""
+    fi
+
+    # Check if our specific marker comment already exists to prevent duplicate entries
+    if grep -Fxq "$MARKER_COMMENT" "$BASHRC_FILE"; then
+        echo "'$ENV_NAME' activation command (marked by '$MARKER_COMMENT') already found in $BASHRC_FILE."
+        echo "No changes made to $BASHRC_FILE."
+    else
+        echo "Adding '$ACTIVATION_COMMAND' to $BASHRC_FILE for automatic activation in new bash shells."
+        # Append the marker and the command
+        echo "" >> "$BASHRC_FILE" # Add a newline for separation
+        echo "$MARKER_COMMENT" >> "$BASHRC_FILE"
+        echo "$ACTIVATION_COMMAND" >> "$BASHRC_FILE"
+        echo ""
+        echo "Successfully added activation command to $BASHRC_FILE."
+        echo "To make this effective for future sessions, no further action is needed; new bash terminals will attempt to activate '$ENV_NAME' automatically."
+        echo "To apply to your CURRENT terminal session, you can run: source $BASHRC_FILE"
+        echo "(Note: If you run 'source $BASHRC_FILE' and it activates '$ENV_NAME', this script will still finish in its own subshell.)"
+        echo ""
+        echo "To UNDO this automatic activation in the future, manually edit $BASHRC_FILE" 
+        echo "and remove the following lines (or lines between the markers if more were added):"
+        echo "$MARKER_COMMENT"
+        echo "$ACTIVATION_COMMAND"
+    fi
+else
+    echo "WARNING: $BASHRC_FILE not found. Could not configure automatic environment activation for new bash shells." >&2
+fi
+
+echo "--- Setup script finished ---"
