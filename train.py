@@ -173,11 +173,21 @@ def train_model(X, y, folds, num_classes, model_dir, epochs=50, batch_size=32):
 
         # Train
         print(f"Starting training for Fold {fold_num} from epoch {initial_epoch}...")
+        
+        # DEBUG: Check wandb.run before WandbCallback instantiation
+        print(f"DEBUG: In train_model, before WandbCallback, wandb.run is: {wandb.run}")
+        
+        current_callbacks = [model_checkpoint_callback, state_callback, early_stopping, reduce_lr]
+        if wandb.run is not None: # Only add WandbCallback if wandb.run is active
+            current_callbacks.append(WandbCallback(save_model=False))
+        else:
+            print("DEBUG: wandb.run is None, not adding WandbCallback.")
+
         history = model.fit(X_train, y_train,
                           epochs=epochs,
                           batch_size=batch_size,
                           validation_data=(X_test, y_test),
-                          callbacks=[model_checkpoint_callback, state_callback, early_stopping, reduce_lr, WandbCallback(save_model=False)], # Added WandbCallback
+                          callbacks=current_callbacks, # Use the potentially modified list
                           initial_epoch=initial_epoch, # Start from the correct epoch
                           verbose=1)
 
