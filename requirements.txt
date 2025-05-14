@@ -13,3 +13,4 @@ soundata>=0.1.4
 safetensors>=0.4.0
 matplotlib>=3.0.0 # Added matplotlib
 huggingface_hub>=0.20.0 # Added huggingface_hub 
+wandb>=0.15.0 # Added Weights & Biases 

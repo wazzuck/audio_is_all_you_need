@@ -56,12 +56,20 @@ def main(args):
     print(f"Attempting to upload processed data to Hugging Face Hub repository: {config.HF_REPO_ID}")
     print("Please ensure you have logged in via 'huggingface-cli login' and have write access to the repository.")
     try:
-        # Create a temporary folder with a more descriptive name for the dataset card
-        # (e.g. "processed_urbansound8k") if desired, or upload output_dir directly.
-        # For simplicity, directly uploading output_dir.
-        # The path_in_repo can be used to organize files within the HF dataset.
-        # For example, path_in_repo="processed_data"
-        
+        # Attempt to create the repo first.
+        # exist_ok=True will not raise an error if the repo already exists and is accessible.
+        try:
+            huggingface_hub.create_repo(
+                repo_id=config.HF_REPO_ID,
+                repo_type="dataset",
+                exist_ok=True 
+            )
+            print(f"Ensured repository {config.HF_REPO_ID} exists or was created.")
+        except Exception as create_e:
+            # This might catch other errors if exist_ok=True isn't enough for some edge cases (e.g. permissions)
+            print(f"Note: Problem during create_repo (repo may already exist or other permission issue): {create_e}")
+            # We'll proceed to upload_folder anyway, as it will provide a more specific error if the issue persists.
+
         repo_url = huggingface_hub.upload_folder(
             folder_path=args.output_dir,
             repo_id=config.HF_REPO_ID,
@@ -77,8 +85,8 @@ def main(args):
         # print("Local cleanup complete.")
 
     except Exception as e:
-        print(f"Error uploading to Hugging Face Hub: {e}")
-        print("Please check your authentication, internet connection, and repository permissions.")
+        print(f"Error during Hugging Face Hub operation: {e}")
+        print("Please check your authentication, internet connection, repository permissions, and ensure the repo_id is correct.")
 
 
 if __name__ == "__main__":
