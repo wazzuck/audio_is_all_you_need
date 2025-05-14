@@ -15,7 +15,7 @@ class EncoderBlock(nn.Module):
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding)
         self.bn = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU()
-        self.pool = nn.MaxPool2d(pool_size=pool_size)
+        self.pool = nn.MaxPool2d(kernel_size=pool_size)
         self.dropout = nn.Dropout(p=dropout_p)
 
     def forward(self, x):
