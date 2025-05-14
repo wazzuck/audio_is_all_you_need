@@ -1,26 +1,23 @@
 import os
 import numpy as np
-import tensorflow as tf
+import torch
 import argparse
-import sys
+from safetensors.torch import load_file as load_safetensors
 
-# Add src directory to Python path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Assuming data_loader, utils, model, config are in the same directory or PYTHONPATH is set
+from data_loader import (
+    load_audio_robust, extract_mel_spectrogram,
+    pad_or_truncate_spectrogram, MAX_DURATION_S,
+    SAMPLE_RATE, HOP_LENGTH, N_MELS, NUM_CLASSES
+)
+from utils import load_pickle
+from model import AudioCNN # Import the PyTorch model
+import config
 
-from src.data_loader import (load_audio_robust, extract_mel_spectrogram, 
-                             pad_or_truncate_spectrogram, MAX_DURATION_S, 
-                             SAMPLE_RATE, HOP_LENGTH, N_MELS, NUM_CLASSES)
-from src.utils import load_pickle
-from src.model import build_cnn_model # Import the model builder
-from src import config # Import config
+DEFAULT_FOLD_DISPLAY = 1 # For user-facing default, actual filename might be 0-indexed
 
-# Default paths - Now fetched from config
-# DEFAULT_MODEL_DIR = 'models'
-# DEFAULT_PROCESSED_DIR = 'data/processed' # To load class mapping
-DEFAULT_FOLD = 1 # Default to using the model trained excluding fold 1
-
-def predict_sound_class(audio_path, model_weights_path, class_mapping):
-    """Loads an audio file, preprocesses it, builds the model structure,
+def predict_sound_class(audio_path, model_weights_path, class_mapping, device):
+    """Loads an audio file, preprocesses it, builds the PyTorch model,
        loads weights from .safetensors, and predicts its class."""
     print(f"Loading audio file: {audio_path}")
     audio = load_audio_robust(audio_path, sr=SAMPLE_RATE)
@@ -37,54 +34,63 @@ def predict_sound_class(audio_path, model_weights_path, class_mapping):
 
     mel_spec = extract_mel_spectrogram(audio)
 
-    # Calculate expected spectrogram length
-    target_len = int(np.ceil(MAX_DURATION_S * SAMPLE_RATE / HOP_LENGTH))
-    mel_spec_processed = pad_or_truncate_spectrogram(mel_spec, target_len)
+    # Calculate expected spectrogram length based on MAX_DURATION_S
+    # This should match the target_len used during training for consistency
+    target_len_processed_spec = int(np.ceil(MAX_DURATION_S * SAMPLE_RATE / HOP_LENGTH))
+    mel_spec_processed = pad_or_truncate_spectrogram(mel_spec, target_len_processed_spec)
 
-    # Determine input shape for model building
-    input_shape = (N_MELS, target_len, 1)
-    print(f"Expected model input shape: {input_shape}")
+    # Ensure N_MELS matches the processed spectrogram
+    if mel_spec_processed.shape[0] != N_MELS:
+        print(f"Warning: Processed spectrogram has {mel_spec_processed.shape[0]} mel bands, but model expects {N_MELS}.")
+        # Potentially resize or error out here if critical
 
-    # Add batch dimension for prediction
-    mel_spec_batch = mel_spec_processed[np.newaxis, ..., np.newaxis]
+    print(f"Processed Mel spectrogram shape: {mel_spec_processed.shape} (Expected: {N_MELS}, {target_len_processed_spec})")
+
+    # Convert to PyTorch tensor and add batch dimension
+    # Model expects (batch, n_mels, time_frames)
+    mel_spec_tensor = torch.tensor(mel_spec_processed, dtype=torch.float32).unsqueeze(0) # Add batch dim
 
     # --- Build Model and Load Weights ---
-    print("Building model architecture...")
-    model = build_cnn_model(input_shape=input_shape, num_classes=NUM_CLASSES)
+    print("Building PyTorch model architecture...")
+    # target_len_estimate_for_fc_input_calc should be the actual time dimension of the input spectrogram
+    model = AudioCNN(n_mels=N_MELS, num_classes=NUM_CLASSES, target_len_estimate_for_fc_input_calc=mel_spec_tensor.shape[2])
+    model.to(device)
 
     print(f"Loading model weights from: {model_weights_path}")
     try:
-        # TensorFlow expects the path without the suffix in some versions?
-        # Let's try loading directly first, then maybe strip suffix if it fails.
-        model.load_weights(model_weights_path)
+        state_dict = load_safetensors(model_weights_path, device=device) # Load to target device directly
+        model.load_state_dict(state_dict)
     except Exception as e:
-        print(f"Error loading weights: {e}")
-        print("Ensure the weights file exists and TensorFlow/safetensors library is correctly installed.")
-        # Attempting without suffix (older TF behavior?)
-        # try:
-        #    weights_path_no_suffix, _ = os.path.splitext(model_weights_path)
-        #    print(f"Retrying load with path: {weights_path_no_suffix}")
-        #    model.load_weights(weights_path_no_suffix)
-        # except Exception as e2:
-        #    print(f"Error loading weights (retry without suffix): {e2}")
-        #    return
+        print(f"Error loading weights using safetensors: {e}")
+        print("Ensure the weights file exists, is a valid .safetensors PyTorch model, and matches the model architecture.")
         return
 
+    model.eval() # Set model to evaluation mode
+
     print("Making prediction...")
-    predictions = model.predict(mel_spec_batch)
-    predicted_index = np.argmax(predictions[0])
+    with torch.no_grad(): # Disable gradient calculations for inference
+        outputs = model(mel_spec_tensor.to(device))
+    
+    probabilities = torch.softmax(outputs, dim=1)
+    confidence, predicted_index_tensor = torch.max(probabilities, dim=1)
+
+    predicted_index = predicted_index_tensor.item()
+    confidence_score = confidence.item()
+    
     predicted_class = class_mapping.get(predicted_index, "Unknown")
-    confidence = predictions[0][predicted_index]
 
     print("\n--- Prediction Results ---")
     print(f"Predicted Class: {predicted_class} (ID: {predicted_index})")
-    print(f"Confidence: {confidence:.4f}")
+    print(f"Confidence: {confidence_score:.4f}")
     print("\nFull Probabilities:")
-    for i, prob in enumerate(predictions[0]):
+    for i, prob in enumerate(probabilities.squeeze().tolist()): # Squeeze to remove batch dim for iteration
         class_name = class_mapping.get(i, f"Unknown Class {i}")
         print(f"  {class_name:<20}: {prob:.4f}")
 
 def main(args):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
     # Load class mapping
     class_mapping_path = os.path.join(args.processed_dir, 'class_mapping.pkl')
     class_mapping = load_pickle(class_mapping_path)
@@ -93,30 +99,34 @@ def main(args):
         print("Run preprocessing script first.")
         return
 
-    # Construct model weights path
-    model_filename = f'model_fold_{args.fold_num}.safetensors' # Changed extension
+    # Construct model weights path. Folds in filenames are 0-indexed by train.py
+    # If user provides 1-indexed fold, adjust it. Args.fold_num is 0-indexed based on train.py convention.
+    model_filename = f'model_fold_{args.fold_num}_best.safetensors' 
     model_weights_path = os.path.join(args.model_dir, model_filename)
 
     if not os.path.exists(model_weights_path):
         print(f"Error: Model weights file not found: {model_weights_path}")
-        print(f"Ensure you have trained the model for fold {args.fold_num} using scripts/train.py")
+        print(f"Ensure you have trained the model for fold {args.fold_num} and it saved a '_best.safetensors' file.")
         return
 
     if not os.path.exists(args.audio_file):
         print(f"Error: Input audio file not found: {args.audio_file}")
         return
 
-    predict_sound_class(args.audio_file, model_weights_path, class_mapping)
+    predict_sound_class(args.audio_file, model_weights_path, class_mapping, device)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Predict the class of an urban sound audio file using a trained model (.safetensors weights).')
+    parser = argparse.ArgumentParser(description='Predict the class of an urban sound audio file using a trained PyTorch model (.safetensors weights).')
     parser.add_argument('audio_file', type=str, help='Path to the input audio file (.wav recommended).')
     parser.add_argument('--model_dir', type=str, default=config.MODEL_DIR,
                         help=f'Directory containing the trained model weights (.safetensors) (default: {config.MODEL_DIR})')
     parser.add_argument('--processed_dir', type=str, default=config.PROCESSED_DIR,
                         help=f'Directory containing the class mapping pickle file (default: {config.PROCESSED_DIR})')
-    parser.add_argument('--fold_num', type=int, default=DEFAULT_FOLD,
-                        help=f'Which fold\'s trained model weights to use for prediction (default: {DEFAULT_FOLD})')
+    # The train.py script saves folds as fold_0, fold_1 etc.
+    # So, if default is Fold 1 (user-facing), it means index 0 for filename.
+    # Let's assume fold_num is 0-indexed for consistency with filenames now.
+    parser.add_argument('--fold_num', type=int, default=0, 
+                        help='Which fold\'s trained model weights to use for prediction (0-indexed, default: 0).')
 
     args = parser.parse_args()
     main(args) 

@@ -1,289 +1,366 @@
 import os
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.utils import to_categorical
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau, Callback
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score
 import argparse
-import sys
-import json # Added import for json
-import huggingface_hub # Added for HF download
-import wandb # Added for Weights & Biases
-from wandb.integration.keras import WandbCallback # Changed import path
-# We need safetensors explicitly for saving, though TF integrates loading
-# from safetensors import safe_open # Not needed for model.save_weights
+import json
+import huggingface_hub
+import wandb
+from safetensors.torch import save_file as save_safetensors
+import time # For timing epochs
 
-# Add src directory to Python path
-# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) # This line is removed
-
-from utils import load_pickle, save_pickle # Keep save_pickle for history
-from model import build_cnn_model
-from data_loader import NUM_CLASSES # Use NUM_CLASSES from data_loader
-import config # Import config
-
-# Default paths - Now fetched from config
-# DEFAULT_PROCESSED_DIR = 'data/processed'
-# DEFAULT_MODEL_DIR = 'models'
+from utils import load_pickle, save_pickle
+from model import AudioCNN # Import the PyTorch model
+from data_loader import NUM_CLASSES # Assuming this is still relevant and correct
+import config
 
 # Checkpoint and state file paths from config
 CHECKPOINT_BASE_DIR = config.CHECKPOINT_BASE_DIR
 TRAINING_STATE_FILE = config.TRAINING_STATE_FILE
 
-# --- Custom Callback to save training state ---
-class TrainingStateCallback(Callback):
-    def __init__(self, state_file, fold_num):
-        super().__init__()
-        self.state_file = state_file
-        self.fold_num = fold_num
+# --- PyTorch Dataset ---
+class SoundDataset(Dataset):
+    def __init__(self, features, labels, device):
+        self.features = torch.tensor(features, dtype=torch.float32)
+        self.labels = torch.tensor(labels, dtype=torch.long) # CrossEntropyLoss expects long
+        self.device = device # Store device to potentially move data in __getitem__ if not pre-loaded
 
-    def on_epoch_end(self, epoch, logs=None):
-        # Epochs are 0-indexed internally, add 1 for user-facing/resume logic
-        current_epoch = epoch + 1
-        state = {'last_fold': self.fold_num, 'last_epoch': current_epoch}
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
-        with open(self.state_file, 'w') as f:
-            json.dump(state, f)
-        # print(f"Saved training state: Fold {self.fold_num}, Epoch {current_epoch}") # Optional: for debugging
+    def __len__(self):
+        return len(self.features)
 
-def load_training_state(state_file):
+    def __getitem__(self, idx):
+        # Data is already on device if pre-loaded, or can be moved here
+        # For simplicity, assuming data is pre-loaded or small enough
+        # If features are large, consider loading/moving them here
+        return self.features[idx], self.labels[idx]
+
+# --- Helper functions for training state and checkpoints ---
+def save_training_state_json(state_file, fold_num, epoch_num):
+    os.makedirs(os.path.dirname(state_file), exist_ok=True)
+    state = {'last_fold': fold_num, 'last_epoch': epoch_num}
+    with open(state_file, 'w') as f:
+        json.dump(state, f)
+    print(f"Saved training state: Fold {fold_num}, Epoch {epoch_num}")
+
+def load_training_state_json(state_file):
     if os.path.exists(state_file):
         with open(state_file, 'r') as f:
             try:
                 state = json.load(f)
-                # Basic validation
                 if 'last_fold' in state and 'last_epoch' in state:
                     print(f"Found previous training state: {state}")
                     return state
             except json.JSONDecodeError:
                 print(f"Error reading training state file: {state_file}. Starting fresh.")
-    return {'last_fold': 0, 'last_epoch': 0} # Default start state if no file or invalid
+    return {'last_fold': 0, 'last_epoch': 0}
 
-def train_model(X, y, folds, num_classes, model_dir, epochs=50, batch_size=32):
-    """Trains the model using 10-fold cross-validation based on predefined folds,
-       saving checkpoints to allow resuming, and final weights in .safetensors format."""
-    # Ensure base checkpoint directory exists
+def save_pytorch_checkpoint(epoch, model, optimizer, val_loss, checkpoint_path):
+    os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'val_loss': val_loss, # Or val_accuracy, depending on what's monitored
+    }, checkpoint_path)
+    print(f"Saved checkpoint to {checkpoint_path} (Epoch {epoch})")
+
+def load_pytorch_checkpoint(model, optimizer, checkpoint_path, device):
+    if not os.path.exists(checkpoint_path):
+        print(f"Checkpoint file not found: {checkpoint_path}")
+        return 0, float('inf') # Start from epoch 0, with infinite loss
+
+    print(f"Loading checkpoint from {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    if optimizer and 'optimizer_state_dict' in checkpoint:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    
+    start_epoch = checkpoint.get('epoch', 0) + 1 # Resume from next epoch
+    val_loss = checkpoint.get('val_loss', float('inf')) # or val_accuracy
+    print(f"Resuming from Epoch {start_epoch}, Last Val Loss: {val_loss:.4f}")
+    return start_epoch, val_loss
+
+def train_model(X_all, y_all, folds_all, num_classes_global, model_dir, epochs=50, batch_size=32, learning_rate=0.001):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
     os.makedirs(CHECKPOINT_BASE_DIR, exist_ok=True)
-    os.makedirs(model_dir, exist_ok=True) # Original model dir for final .safetensors
+    os.makedirs(model_dir, exist_ok=True)
 
     fold_accuracies = []
-    fold_histories = []
+    all_fold_histories = [] # List to store history dicts for each fold
 
-    # Load last training state
-    initial_state = load_training_state(TRAINING_STATE_FILE)
-    start_fold = initial_state['last_fold']
-    # If the last recorded epoch was the final epoch for that fold, start the next fold
-    # Note: This assumes `epochs` is constant. If last_epoch == epochs, it finished.
-    # A more robust check would be needed if epochs varied or training stopped exactly on the last epoch before state save.
-    if start_fold > 0 and initial_state['last_epoch'] >= epochs:
-         print(f"Fold {start_fold} finished ({initial_state['last_epoch']} epochs). Starting next fold.")
-         start_fold += 1
-         initial_epoch_for_next_fold = 0
-    elif start_fold > 0:
-         # Resume from the epoch *after* the last saved one
-         initial_epoch_for_next_fold = initial_state['last_epoch']
-         print(f"Resuming Fold {start_fold} from epoch {initial_epoch_for_next_fold}")
-    else:
-         initial_epoch_for_next_fold = 0 # Start from beginning
+    initial_state = load_training_state_json(TRAINING_STATE_FILE)
+    start_fold_idx = initial_state['last_fold'] # Folds are 0-indexed here
 
-    unique_folds = np.sort(np.unique(folds))
-    if len(unique_folds) != 10:
-        print(f"Warning: Expected 10 folds, but found {len(unique_folds)}. Proceeding anyway.")
+    # If the last recorded epoch for the start_fold_idx was the final one, advance to the next fold
+    if start_fold_idx > 0 and initial_state['last_epoch'] >= epochs:
+        print(f"Fold {start_fold_idx} completed all {epochs} epochs. Starting next fold.")
+        start_fold_idx += 1
+        initial_epoch_for_next_fold = 0
+    elif start_fold_idx > 0 :
+        initial_epoch_for_next_fold = initial_state['last_epoch'] # Resume from this epoch +1 internally
+        print(f"Resuming Fold {start_fold_idx} from epoch {initial_epoch_for_next_fold}")
+    else: # start_fold_idx is 0
+        initial_epoch_for_next_fold = 0
 
-    input_shape = X.shape[1:] # Shape should be (n_mels, target_len, 1)
-    print(f"Input shape for model: {input_shape}")
+    unique_fold_numbers = np.sort(np.unique(folds_all)) # e.g., [0, 1, ..., 9] if that's how folds are numbered
+    
+    # Determine n_mels and target_len from the input data
+    # X_all shape expected: (num_samples, n_mels, target_len)
+    if X_all.ndim != 3:
+        raise ValueError(f"Expected X_all to have 3 dimensions (num_samples, n_mels, target_len), but got {X_all.ndim}")
+    n_mels = X_all.shape[1]
+    target_len = X_all.shape[2]
+    print(f"Input data: n_mels={n_mels}, target_len={target_len}")
 
-    # Convert labels to categorical
-    y_cat = to_categorical(y, num_classes=num_classes)
 
-    # Loop through folds, starting from the determined start_fold
-    for fold_num in unique_folds:
-        if fold_num < start_fold:
-            print(f"Skipping completed Fold {fold_num}")
-            # Optionally load past results if needed, otherwise just skip
+    for fold_idx, fold_num_actual in enumerate(unique_fold_numbers): # fold_idx is 0 to N-1
+        current_fold_history = {'loss': [], 'accuracy': [], 'val_loss': [], 'val_accuracy': []}
+
+        if fold_idx < start_fold_idx:
+            print(f"Skipping completed Fold {fold_num_actual} (index {fold_idx})")
+            # To keep all_fold_histories consistent, we might need to load and append past history
+            # For now, let's assume we only care about new/resumed folds.
+            # If all_fold_histories.pkl contains full history, this needs adjustment or just fill with None.
+            all_fold_histories.append(None) # Placeholder
             continue
 
-        print(f"\n--- Training Fold {fold_num}/{len(unique_folds)} ---")
+        print(f"\n--- Training Fold {fold_num_actual} (Index {fold_idx + 1}/{len(unique_fold_numbers)}) ---")
+        
+        initial_epoch_for_this_fold = initial_epoch_for_next_fold if fold_idx == start_fold_idx else 0
 
-        # Determine initial epoch for this specific fold
-        initial_epoch = initial_epoch_for_next_fold if fold_num == start_fold else 0
+        train_indices = np.where(folds_all != fold_num_actual)[0]
+        test_indices = np.where(folds_all == fold_num_actual)[0]
 
-        # Split data based on the predefined fold number
-        train_indices = np.where(folds != fold_num)[0]
-        test_indices = np.where(folds == fold_num)[0]
-
-        X_train, X_test = X[train_indices], X[test_indices]
-        y_train, y_test = y_cat[train_indices], y_cat[test_indices]
-        y_test_labels = y[test_indices] # Keep original labels for evaluation
+        X_train, X_test = X_all[train_indices], X_all[test_indices]
+        y_train, y_test = y_all[train_indices], y_all[test_indices]
 
         print(f"Train shape: {X_train.shape}, Test shape: {X_test.shape}")
 
-        # Build model (rebuild for each fold)
-        model = build_cnn_model(input_shape=input_shape, num_classes=num_classes)
-        model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-                      loss='categorical_crossentropy',
-                      metrics=['accuracy'])
+        train_dataset = SoundDataset(X_train, y_train, device)
+        test_dataset = SoundDataset(X_test, y_test, device)
+        
+        # Move data to device before creating DataLoader if memory allows
+        # Or do it in Dataset's __getitem__
+        train_dataset.features = train_dataset.features.to(device)
+        train_dataset.labels = train_dataset.labels.to(device)
+        test_dataset.features = test_dataset.features.to(device)
+        test_dataset.labels = test_dataset.labels.to(device)
 
-        # Define checkpoint path for this fold
-        fold_checkpoint_dir = os.path.join(CHECKPOINT_BASE_DIR, f'fold_{fold_num}')
-        checkpoint_filepath = os.path.join(fold_checkpoint_dir, 'epoch_{epoch:02d}.keras') # TF saves directory, now with .keras
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        
+        model = AudioCNN(n_mels=n_mels, num_classes=num_classes_global, target_len_estimate_for_fc_input_calc=target_len).to(device)
+        if wandb.run:
+            wandb.watch(model, log="all", log_freq=100) # Log gradients and parameters
 
-        # Load weights if resuming this fold
-        if initial_epoch > 0:
-            resume_checkpoint_path = os.path.join(fold_checkpoint_dir, f'epoch_{initial_epoch:02d}.keras') # Added .keras
-            if os.path.exists(resume_checkpoint_path): # Check if file exists
-                try:
-                    print(f"Loading model state from checkpoint: {resume_checkpoint_path}")
-                    # Load the entire model state
-                    model = tf.keras.models.load_model(resume_checkpoint_path)
-                    print("Model state loaded successfully.")
-                    # Re-compile is sometimes needed after loading, though often handled by load_model
-                    # model.compile(...) # Re-use compilation args if needed
-                except Exception as e:
-                    print(f"Error loading checkpoint {resume_checkpoint_path}: {e}. Starting fold {fold_num} from scratch.")
-                    initial_epoch = 0 # Reset epoch if loading failed
-                    # Rebuild and compile if loading failed fundamentally
-                    model = build_cnn_model(input_shape=input_shape, num_classes=num_classes)
-                    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-                                  loss='categorical_crossentropy',
-                                  metrics=['accuracy'])
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+        criterion = nn.CrossEntropyLoss()
+        scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.2, patience=5, verbose=True, min_lr=0.00001)
+
+        fold_checkpoint_dir = os.path.join(CHECKPOINT_BASE_DIR, f'fold_{fold_num_actual}')
+        
+        # Variables for early stopping and best model in fold
+        best_val_loss_for_early_stop = float('inf')
+        patience_counter = 0
+        early_stopping_patience = 10 # From original Keras setup
+        
+        best_val_accuracy_this_fold = 0.0
+        best_epoch_this_fold = 0
+        
+        # Load checkpoint if resuming this fold
+        start_epoch_from_checkpoint = 0
+        if initial_epoch_for_this_fold > 0:
+            # Checkpoint path for the *previous* successfully completed epoch
+            resume_checkpoint_path = os.path.join(fold_checkpoint_dir, f'epoch_{initial_epoch_for_this_fold -1}.pt') 
+            if os.path.exists(resume_checkpoint_path):
+                # load_pytorch_checkpoint returns the epoch to *start* from (saved_epoch + 1)
+                start_epoch_from_checkpoint, _ = load_pytorch_checkpoint(model, optimizer, resume_checkpoint_path, device)
             else:
-                print(f"Checkpoint path not found: {resume_checkpoint_path}. Starting fold {fold_num} from scratch.")
-                initial_epoch = 0
-
-        # Callbacks
-        # Checkpoint callback to save full model state every epoch
-        model_checkpoint_callback = ModelCheckpoint(
-            filepath=checkpoint_filepath,
-            save_weights_only=False, # Save entire model
-            monitor='val_accuracy', # Can still monitor metric
-            mode='max',
-            save_best_only=False, # Save every epoch
-            save_freq='epoch', # Explicitly save every epoch
-            verbose=1)
-
-        # State saving callback
-        state_callback = TrainingStateCallback(state_file=TRAINING_STATE_FILE, fold_num=fold_num)
-
-        # Early stopping and learning rate reduction
-        early_stopping = EarlyStopping(monitor='val_loss', patience=10, verbose=1, mode='min')
-        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5,
-                                      verbose=1, mode='min', min_lr=0.00001)
-
-        # Train
-        print(f"Starting training for Fold {fold_num} from epoch {initial_epoch}...")
+                print(f"Warning: Checkpoint {resume_checkpoint_path} not found for resuming. Starting fold from scratch.")
+                start_epoch_from_checkpoint = 0 # Effectively initial_epoch_for_this_fold becomes 0
         
-        # DEBUG: Check wandb.run before WandbCallback instantiation
-        print(f"DEBUG: In train_model, before WandbCallback, wandb.run is: {wandb.run}")
+        actual_start_epoch = max(initial_epoch_for_this_fold, start_epoch_from_checkpoint)
+        if actual_start_epoch > 0:
+             print(f"Adjusted start epoch for this fold to: {actual_start_epoch}")
+
+
+        print(f"Starting training for Fold {fold_num_actual} from epoch {actual_start_epoch}...")
+        for epoch in range(actual_start_epoch, epochs):
+            epoch_start_time = time.time()
+            model.train()
+            running_loss = 0.0
+            correct_train = 0
+            total_train = 0
+
+            for batch_idx, (inputs, targets) in enumerate(train_loader):
+                # inputs, targets = inputs.to(device), targets.to(device) # Already on device
+                optimizer.zero_grad()
+                outputs = model(inputs)
+                loss = criterion(outputs, targets)
+                loss.backward()
+                optimizer.step()
+
+                running_loss += loss.item() * inputs.size(0)
+                _, predicted = torch.max(outputs.data, 1)
+                total_train += targets.size(0)
+                correct_train += (predicted == targets).sum().item()
+            
+            epoch_loss = running_loss / len(train_loader.dataset)
+            epoch_acc = correct_train / total_train
+            current_fold_history['loss'].append(epoch_loss)
+            current_fold_history['accuracy'].append(epoch_acc)
+
+            # Validation
+            model.eval()
+            val_running_loss = 0.0
+            correct_val = 0
+            total_val = 0
+            with torch.no_grad():
+                for inputs, targets in test_loader:
+                    # inputs, targets = inputs.to(device), targets.to(device) # Already on device
+                    outputs = model(inputs)
+                    loss = criterion(outputs, targets)
+                    val_running_loss += loss.item() * inputs.size(0)
+                    _, predicted = torch.max(outputs.data, 1)
+                    total_val += targets.size(0)
+                    correct_val += (predicted == targets).sum().item()
+
+            val_loss = val_running_loss / len(test_loader.dataset)
+            val_acc = correct_val / total_val
+            current_fold_history['val_loss'].append(val_loss)
+            current_fold_history['val_accuracy'].append(val_acc)
+            
+            epoch_duration = time.time() - epoch_start_time
+            print(f"Fold {fold_num_actual} | Epoch {epoch + 1}/{epochs} | Time: {epoch_duration:.2f}s | "
+                  f"Train Loss: {epoch_loss:.4f}, Train Acc: {epoch_acc:.4f} | "
+                  f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+
+            if wandb.run:
+                wandb.log({
+                    f"fold_{fold_num_actual}/train_loss": epoch_loss,
+                    f"fold_{fold_num_actual}/train_accuracy": epoch_acc,
+                    f"fold_{fold_num_actual}/val_loss": val_loss,
+                    f"fold_{fold_num_actual}/val_accuracy": val_acc,
+                    "epoch": epoch +1 # Log current epoch number (1-indexed)
+                }, step=epoch + (fold_idx * epochs)) # Global step
+
+            scheduler.step(val_loss) # ReduceLROnPlateau
+
+            # Save checkpoint (every epoch)
+            checkpoint_path = os.path.join(fold_checkpoint_dir, f'epoch_{epoch}.pt')
+            save_pytorch_checkpoint(epoch, model, optimizer, val_loss, checkpoint_path)
+            
+            # Save training state (fold and current completed epoch)
+            save_training_state_json(TRAINING_STATE_FILE, fold_idx, epoch + 1)
+
+
+            # Update best model for this fold
+            if val_acc > best_val_accuracy_this_fold:
+                best_val_accuracy_this_fold = val_acc
+                best_epoch_this_fold = epoch
+                # Save best model state for this fold immediately (or path to best checkpoint)
+                best_model_fold_path = os.path.join(fold_checkpoint_dir, 'best_model_this_fold.pt')
+                save_pytorch_checkpoint(epoch, model, optimizer, val_loss, best_model_fold_path)
+                print(f"New best validation accuracy for fold {fold_num_actual}: {best_val_accuracy_this_fold:.4f} at epoch {epoch + 1}")
+
+            # Early stopping
+            if val_loss < best_val_loss_for_early_stop:
+                best_val_loss_for_early_stop = val_loss
+                patience_counter = 0
+            else:
+                patience_counter += 1
+            
+            if patience_counter >= early_stopping_patience:
+                print(f"Early stopping triggered at epoch {epoch + 1} for fold {fold_num_actual}.")
+                break # Break from epoch loop
         
-        current_callbacks = [model_checkpoint_callback, state_callback, early_stopping, reduce_lr]
-        if wandb.run is not None: # Only add WandbCallback if wandb.run is active
-            current_callbacks.append(WandbCallback(save_model=False))
+        # After fold training (or early stopping)
+        print(f"Fold {fold_num_actual} finished. Best validation accuracy: {best_val_accuracy_this_fold:.4f} at epoch {best_epoch_this_fold + 1}")
+        
+        # Load the best model for this fold to save as .safetensors
+        best_model_final_path_pt = os.path.join(fold_checkpoint_dir, 'best_model_this_fold.pt')
+        if os.path.exists(best_model_final_path_pt):
+            print(f"Loading best model for fold {fold_num_actual} from {best_model_final_path_pt}")
+            # Create a new model instance to load the state into
+            best_model_for_saving = AudioCNN(n_mels=n_mels, num_classes=num_classes_global, target_len_estimate_for_fc_input_calc=target_len).to(device)
+            load_pytorch_checkpoint(best_model_for_saving, None, best_model_final_path_pt, device)
+            
+            safetensors_path = os.path.join(model_dir, f'model_fold_{fold_num_actual}_best.safetensors')
+            print(f"Saving best weights for fold {fold_num_actual} to: {safetensors_path}")
+            try:
+                save_safetensors(best_model_for_saving.state_dict(), safetensors_path)
+            except Exception as e:
+                print(f"Error saving .safetensors: {e}")
         else:
-            print("DEBUG: wandb.run is None, not adding WandbCallback.")
+            print(f"Could not find best model checkpoint at {best_model_final_path_pt} for fold {fold_num_actual}. Cannot save .safetensors.")
 
-        history = model.fit(X_train, y_train,
-                          epochs=epochs,
-                          batch_size=batch_size,
-                          validation_data=(X_test, y_test),
-                          callbacks=current_callbacks, # Use the potentially modified list
-                          initial_epoch=initial_epoch, # Start from the correct epoch
-                          verbose=1)
+        fold_accuracies.append(best_val_accuracy_this_fold) # Store the best val_acc for this fold
+        all_fold_histories.append(current_fold_history)
+        
+        # Reset for next fold if resuming a multi-fold run
+        initial_epoch_for_next_fold = 0
 
-        fold_histories.append(history.history)
-
-        # --- Find and save the best weights as .safetensors (after fold finishes) ---
-        # Find the epoch with the best validation accuracy from history
-        best_epoch_index = np.argmax(history.history['val_accuracy'])
-        best_epoch = best_epoch_index + 1 # history is 0-indexed, epochs are 1-based in checkpoints/logs
-        best_val_accuracy = history.history['val_accuracy'][best_epoch_index]
-        print(f"Best epoch for Fold {fold_num}: {best_epoch} with val_accuracy: {best_val_accuracy:.4f}")
-
-        # Load the model state from the best epoch's checkpoint
-        best_checkpoint_path = os.path.join(fold_checkpoint_dir, f'epoch_{best_epoch:02d}.keras') # Added .keras
-        if os.path.exists(best_checkpoint_path):
-             print(f"Loading best model state from: {best_checkpoint_path}")
-             # Load the best model state to save its weights
-             best_model = tf.keras.models.load_model(best_checkpoint_path)
-
-             # Save best weights in .safetensors format
-             safetensors_path = os.path.join(model_dir, f'model_fold_{fold_num}_best.safetensors')
-             print(f"Saving best weights for fold {fold_num} to: {safetensors_path}")
-             try:
-                 best_model.save_weights(safetensors_path) # TF handles .safetensors extension
-             except ValueError as e:
-                 print(f"Direct saving to .safetensors failed (requires TF >= 2.11/2.12+): {e}")
-                 print("Consider manual saving using the safetensors library if needed.")
-                 pass # Fallback or error handling
-        else:
-             print(f"Could not find checkpoint for best epoch {best_epoch} at {best_checkpoint_path}. Cannot save best .safetensors.")
-
-
-        # Evaluate the best model (already loaded as best_model)
-        _, accuracy = best_model.evaluate(X_test, y_test, verbose=0)
-        print(f"Fold {fold_num} Test Accuracy (from best epoch {best_epoch}): {accuracy:.4f}")
-        fold_accuracies.append(accuracy)
-
-        # Optional: Cleanup old checkpoints for this fold? Or keep all? Keeping all for now.
-
-        # Optional: Detailed classification report (using best_model)
-        # y_pred_probs = best_model.predict(X_test)
-        # ... rest of report generation ...
 
     # --- Overall Results ---
-    mean_accuracy = np.mean(fold_accuracies)
-    std_accuracy = np.std(fold_accuracies)
-    print("\n--- Cross-Validation Summary ---")
-    print(f"Individual Fold Accuracies: {[f'{acc:.4f}' for acc in fold_accuracies]}")
-    print(f"Average Accuracy: {mean_accuracy:.4f} (+/- {std_accuracy:.4f})")
+    if fold_accuracies: # Check if any folds were run
+        mean_accuracy = np.mean(fold_accuracies)
+        std_accuracy = np.std(fold_accuracies)
+        print("\n--- Cross-Validation Summary ---")
+        print(f"Individual Fold Best Validation Accuracies: {[f'{acc:.4f}' for acc in fold_accuracies]}")
+        print(f"Average Best Validation Accuracy: {mean_accuracy:.4f} (+/- {std_accuracy:.4f})")
 
-    # Log overall results to W&B if a run is active
-    if wandb.run is not None:
-        wandb.log({
-            "overall_mean_accuracy": mean_accuracy,
-            "overall_std_accuracy": std_accuracy,
-            "individual_fold_accuracies": fold_accuracies # W&B can log lists
-        })
+        if wandb.run:
+            wandb.log({
+                "overall_mean_val_accuracy": mean_accuracy,
+                "overall_std_val_accuracy": std_accuracy,
+                "individual_fold_val_accuracies": fold_accuracies
+            })
+    else:
+        print("No folds were trained or completed.")
 
-    # Save histories using pickle
-    save_pickle(fold_histories, os.path.join(model_dir, 'all_fold_histories.pkl'))
-
-    # After all folds complete, potentially clear the training state file?
-    # Or leave it to indicate completion. Let's leave it for now.
+    save_pickle(all_fold_histories, os.path.join(model_dir, 'all_fold_histories_pytorch.pkl'))
     print("\n--- Training Process Finished ---")
-    if os.path.exists(TRAINING_STATE_FILE):
-        final_state = load_training_state(TRAINING_STATE_FILE)
-        print(f"Final training state recorded: {final_state}")
+    final_state_json = load_training_state_json(TRAINING_STATE_FILE)
+    print(f"Final training state recorded: {final_state_json}")
+
 
 def main(args):
     print("Checking for processed data...")
 
     # Initialize Weights & Biases
-    try:
-        run = wandb.init( # Assign the result to a variable
-            project=config.WANDB_PROJECT,
-            entity=config.WANDB_ENTITY,
-            config={
-                "epochs": args.epochs,
-                "batch_size": args.batch_size,
-                "processed_dir": args.processed_dir,
-                "model_dir": args.model_dir,
-                "num_classes": NUM_CLASSES, # Log this important parameter
-                # Add other relevant config from 'config.py' or args if desired
-            }
-        )
-        if run is None:
-            print("DEBUG: wandb.init() returned None directly.") # New debug line
-        else:
-            print(f"DEBUG: wandb.init() returned run object: {run}") # New debug line
-            print(f"DEBUG: wandb.run is: {wandb.run} (immediately after init)") # New debug line
+    if not wandb.run: # Check if a run is already active (e.g. from a sweep)
+        try:
+            wandb.init(
+                project=config.WANDB_PROJECT,
+                entity=config.WANDB_ENTITY,
+                config={
+                    "epochs": args.epochs,
+                    "batch_size": args.batch_size,
+                    "learning_rate": args.learning_rate, # Added LR to config
+                    "processed_dir": args.processed_dir,
+                    "model_dir": args.model_dir,
+                    "num_classes": NUM_CLASSES,
+                }
+            )
+            print(f"Weights & Biases initialized for project: {config.WANDB_PROJECT}, entity: {config.WANDB_ENTITY}")
+        except Exception as e:
+            print(f"Could not initialize Weights & Biases: {e}. Training will continue without W&B logging.")
+    else:
+        print(f"Using active W&B run: {wandb.run.name}")
+        # Update W&B config if necessary from args, though usually set by sweep agent
+        wandb.config.update({
+            "epochs": args.epochs,
+            "batch_size": args.batch_size,
+            "learning_rate": args.learning_rate,
+        }, allow_val_change=True)
 
-        print(f"Weights & Biases initialized for project: {config.WANDB_PROJECT}, entity: {config.WANDB_ENTITY}")
-    except Exception as e:
-        print(f"Could not initialize Weights & Biases: {e}. Training will continue without W&B logging.")
-        print(f"DEBUG: wandb.run is: {wandb.run} (inside exception handler)") # New debug line
-        # Optionally, set a flag or handle this to prevent W&B calls later if init failed
 
     # Check if the processed data directory exists
     if not os.path.exists(args.processed_dir):
@@ -295,14 +372,14 @@ def main(args):
                 repo_id=config.HF_REPO_ID,
                 repo_type="dataset",
                 local_dir=args.processed_dir,
-                local_dir_use_symlinks=False # Download files directly
+                local_dir_use_symlinks=False
             )
             print(f"Successfully downloaded data to {args.processed_dir}")
         except Exception as e:
             print(f"Error downloading data from Hugging Face Hub: {e}")
             print(f"Please ensure the repository '{config.HF_REPO_ID}' exists and is accessible.")
             print("Alternatively, run 'python preprocess_data.py' to generate the data locally.")
-            return # Exit if download fails
+            return
     else:
         print(f"Found processed data locally at {args.processed_dir}")
 
@@ -312,8 +389,7 @@ def main(args):
         y = load_pickle(os.path.join(args.processed_dir, 'labels.pkl'))
         folds = load_pickle(os.path.join(args.processed_dir, 'folds.pkl'))
     except FileNotFoundError:
-        print(f"Error: Processed data files (e.g., features.pkl) not found in {args.processed_dir} even after check/download.")
-        print("There might be an issue with the downloaded data or the preprocessing script output.")
+        print(f"Error: Processed data files (e.g., features.pkl) not found in {args.processed_dir}.")
         return
 
     if X is None or y is None or folds is None:
@@ -322,27 +398,29 @@ def main(args):
 
     print("Starting model training...")
     train_model(X, y, folds,
-                num_classes=NUM_CLASSES,
+                num_classes_global=NUM_CLASSES,
                 model_dir=args.model_dir,
                 epochs=args.epochs,
-                batch_size=args.batch_size)
+                batch_size=args.batch_size,
+                learning_rate=args.learning_rate) # Pass LR
     print("Training complete. Models saved as .safetensors files.")
 
-    # Finish W&B run at the end
-    if wandb.run is not None:
+    if wandb.run:
         wandb.finish()
         print("Weights & Biases run finished.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Train the UrbanSound8K CNN model using 10-fold cross-validation, saving weights as .safetensors.')
+    parser = argparse.ArgumentParser(description='Train the UrbanSound8K CNN model using PyTorch with 10-fold cross-validation.')
     parser.add_argument('--processed_dir', type=str, default=config.PROCESSED_DIR,
                         help=f'Directory containing the processed features (default: {config.PROCESSED_DIR})')
     parser.add_argument('--model_dir', type=str, default=config.MODEL_DIR,
-                        help=f'Directory to save the trained model weights (.safetensors) (default: {config.MODEL_DIR})')
+                        help=f'Directory to save the trained model weights (default: {config.MODEL_DIR})')
     parser.add_argument('--epochs', type=int, default=config.DEFAULT_EPOCHS,
                         help=f'Number of training epochs per fold (default: {config.DEFAULT_EPOCHS})')
     parser.add_argument('--batch_size', type=int, default=config.DEFAULT_BATCH_SIZE,
                         help=f'Training batch size (default: {config.DEFAULT_BATCH_SIZE})')
+    parser.add_argument('--learning_rate', type=float, default=0.001, # Added LR argument
+                        help='Initial learning rate (default: 0.001)')
 
     args = parser.parse_args()
     main(args) 

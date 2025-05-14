@@ -1,4 +1,7 @@
-tensorflow>=2.8.0 # Ensure tensorflow is listed and uncommented
+# tensorflow>=2.8.0 # Ensure tensorflow is listed and uncommented # Commented out TensorFlow
+torch>=1.10.0 # Added PyTorch
+torchvision>=0.11.0 # Added Torchvision
+torchaudio>=0.10.0 # Added Torchaudio
 librosa>=0.9.0
 numpy>=1.20.0
 pandas>=1.3.0
