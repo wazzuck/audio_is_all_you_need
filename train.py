@@ -258,10 +258,29 @@ def train_model(X_all, y_all, folds_all, num_classes_global, model_dir, epochs=5
 
             scheduler.step(val_loss) # ReduceLROnPlateau
 
-            # Save checkpoint (every epoch)
+            # Save PyTorch checkpoint (.pt file)
             checkpoint_path = os.path.join(fold_checkpoint_dir, f'epoch_{epoch}.pt')
             save_pytorch_checkpoint(epoch, model, optimizer, val_loss, checkpoint_path)
             
+            # Save .safetensors checkpoint for this epoch and upload to Hugging Face Hub
+            safetensors_epoch_filename = f'epoch_{epoch}.safetensors'
+            safetensors_epoch_local_path = os.path.join(fold_checkpoint_dir, safetensors_epoch_filename)
+            try:
+                save_safetensors(model.state_dict(), safetensors_epoch_local_path)
+                print(f"Saved epoch {epoch} safetensors to {safetensors_epoch_local_path}")
+                
+                hf_path_in_repo = f"fold_{fold_num_actual}/{safetensors_epoch_filename}"
+                hf_upload_url = huggingface_hub.upload_file(
+                    path_or_fileobj=safetensors_epoch_local_path,
+                    path_in_repo=hf_path_in_repo,
+                    repo_id=config.HF_REPO_ID, # Using the existing repo ID
+                    repo_type="model",
+                    commit_message=f"Upload model checkpoint: Fold {fold_num_actual}, Epoch {epoch}"
+                )
+                print(f"Uploaded epoch {epoch} safetensors for fold {fold_num_actual} to: {hf_upload_url}")
+            except Exception as e:
+                print(f"Error saving or uploading epoch {epoch} safetensors for fold {fold_num_actual}: {e}")
+
             # Save training state (fold and current completed epoch)
             save_training_state_json(TRAINING_STATE_FILE, fold_idx, epoch + 1)
 
@@ -334,6 +353,17 @@ def train_model(X_all, y_all, folds_all, num_classes_global, model_dir, epochs=5
     print("\n--- Training Process Finished ---")
     final_state_json = load_training_state_json(TRAINING_STATE_FILE)
     print(f"Final training state recorded: {final_state_json}")
+
+    # Ensure Hugging Face model repository exists
+    try:
+        huggingface_hub.create_repo(
+            repo_id=config.HF_REPO_ID,
+            repo_type="model",
+            exist_ok=True
+        )
+        print(f"Ensured Hugging Face model repository {config.HF_REPO_ID} exists or was created.")
+    except Exception as e:
+        print(f"Warning: Could not create/verify Hugging Face model repository {config.HF_REPO_ID}: {e}. Model uploads might fail.")
 
 
 def main(args):
