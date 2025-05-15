@@ -13,15 +13,21 @@ import config # Use direct import
 DATA_DIR = config.DATA_DIR
 # TEMP_DOWNLOAD_DIR = config.TEMP_DOWNLOAD_DIR # No longer needed
 
-def download_urbansound8k(data_home=DATA_DIR): # Use DATA_DIR as default data_home
-    """Downloads the UrbanSound8K dataset using soundata."""
-    print(f"Attempting to download UrbanSound8K to {os.path.abspath(data_home)}...")
-    # Ensure the data_home directory exists (soundata might need this)
-    if not os.path.exists(data_home):
-        os.makedirs(data_home)
-        print(f"Created data directory: {data_home}")
+def download_urbansound8k(base_data_dir=DATA_DIR): # Renamed for clarity
+    """Downloads the UrbanSound8K dataset using soundata into a specific UrbanSound8K subdirectory."""
     
-    dataset = soundata.initialize('urbansound8k', data_home=data_home)
+    # Define the specific target directory for UrbanSound8K
+    urbansound8k_target_dir = os.path.join(base_data_dir, "UrbanSound8K")
+    
+    print(f"Attempting to download UrbanSound8K to {os.path.abspath(urbansound8k_target_dir)}...")
+    
+    # Ensure the target UrbanSound8K directory exists
+    if not os.path.exists(urbansound8k_target_dir):
+        os.makedirs(urbansound8k_target_dir)
+        print(f"Created data directory: {urbansound8k_target_dir}")
+    
+    # Use urbansound8k_target_dir as data_home for soundata
+    dataset = soundata.initialize('urbansound8k', data_home=urbansound8k_target_dir)
     # The download happens automatically if the data is not found
     # We just need to trigger the validation or accessing a clip
     try:
@@ -65,4 +71,6 @@ if __name__ == "__main__":
     #     os.makedirs(DATA_DIR) # This is now handled within download_urbansound8k
     download_urbansound8k()
     # Refer to the final data directory in the message
-    print(f"Script finished. Check the '{DATA_DIR}' directory for the UrbanSound8K dataset.")
+    # Construct the path to the UrbanSound8K directory for the final message
+    final_urbansound8k_path = os.path.join(DATA_DIR, "UrbanSound8K")
+    print(f"Script finished. Check the '{os.path.abspath(final_urbansound8k_path)}' directory for the UrbanSound8K dataset.")

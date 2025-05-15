@@ -5,7 +5,7 @@ torchaudio>=0.10.0 # Added Torchaudio
 librosa>=0.9.0
 numpy>=1.20.0
 pandas>=1.3.0
-soundfile>=0.11.0
+soundfile>=0.13.1 # For audio file I/O in librosa & soundata
 tqdm>=4.60.0
 scikit-learn>=1.0.0
 # Install patched jams directly from the main marl/jams repo for Python 3.12+ compatibility
@@ -16,3 +16,6 @@ safetensors>=0.4.0
 matplotlib>=3.0.0 # Added matplotlib
 huggingface_hub>=0.20.0 # Added huggingface_hub 
 wandb>=0.15.0 # Added Weights & Biases 
+soxr>=0.3.7 # For high-quality resampling in librosa
+ml-dtypes
+optree 
