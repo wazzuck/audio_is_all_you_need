@@ -19,3 +19,4 @@ wandb>=0.15.0 # Added Weights & Biases
 soxr>=0.3.7 # For high-quality resampling in librosa
 ml-dtypes
 optree 
+seahorn
