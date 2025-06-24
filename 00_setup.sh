@@ -8,7 +8,7 @@ echo "--- Setting up Miniconda ---"
 
 # Determine architecture based on hostname
 HOSTNAME=$(hostname)
-if [ "$HOSTNAE" = "rpi" || "$HOSTNAME" = "penguin" ]; then
+if [[ "$HOSTNAME" == "rpi" || "$HOSTNAME" == "penguin" ]]; then
   echo "Hostname is 'rpi' or 'penguin'. Selecting Miniconda for aarch64."
   MINICONDA_SCRIPT="Miniconda3-latest-Linux-aarch64.sh"
 else
